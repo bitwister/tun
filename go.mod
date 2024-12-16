@@ -3,7 +3,7 @@ module github.com/goxray/tun
 go 1.23.3
 
 require (
-	github.com/goxray/core v0.0.0-20241215123219-7a9873c4a95c
+	github.com/goxray/core v0.0.0-20241216211530-c622bf9f73e6
 	github.com/jackpal/gateway v1.0.15
 	github.com/lilendian0x00/xray-knife v1.6.14-0.20241211194505-363c66ecace3
 	github.com/xtls/xray-core v1.8.24

@@ -29,7 +29,7 @@ func main() {
 	signal.Notify(sigterm, os.Interrupt, syscall.SIGTERM)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelWarn,
+		Level: slog.LevelError,
 	}))
 
 	vpn, err := client.NewClientWithOpts(client.Config{

@@ -26,7 +26,7 @@ const disconnectTimeout = 30 * time.Second
 
 var (
 	// defaultTUNAddress is the address new TUN device will be set up with.
-	defaultTUNAddress = &net.IPNet{IP: net.IPv4(192, 18, 0, 1)}
+	defaultTUNAddress = &net.IPNet{IP: net.IPv4(192, 18, 0, 1), Mask: net.IPv4Mask(255, 255, 255, 255)}
 	// defaultInboundProxy default proxy will be set up for listening on 127.0.0.1:10808.
 	defaultInboundProxy = &Proxy{
 		IP:   net.IPv4(127, 0, 0, 1),
@@ -239,7 +239,8 @@ func (c *Client) Disconnect(ctx context.Context) error {
 // xrayToGatewayRoute is a setup to route VPN requests to gateway.
 // Used as exception to not interfere with traffic going to remote XRay instance.
 func (c *Client) xrayToGatewayRoute() route.Opts {
-	return route.Opts{Gateway: *c.cfg.GatewayIP, Routes: []*route.Addr{route.MustParseAddr(c.xCfg.Address)}}
+	// Append "/32" to match only the XRay server route.
+	return route.Opts{Gateway: *c.cfg.GatewayIP, Routes: []*route.Addr{route.MustParseAddr(c.xCfg.Address + "/32")}}
 }
 
 // createXrayProxy creates XRay instance from connection link with additional proxy listening on {addr}:{port}.
@@ -299,11 +300,11 @@ func setupTunnel(l *net.IPNet, gw net.IP, rerouteToTun []*route.Addr) (*tun.Inte
 	}
 
 	if err = ifc.Up(l, gw); err != nil {
-		return nil, fmt.Errorf("setup interface: %v", err)
+		return nil, fmt.Errorf("setup interface: %w", err)
 	}
 
 	if err = route.Add(route.Opts{IfName: ifc.Name(), Routes: rerouteToTun}); err != nil {
-		return nil, fmt.Errorf("add route: %v", err)
+		return nil, fmt.Errorf("add route: %w", err)
 	}
 
 	return ifc, nil
