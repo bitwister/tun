@@ -33,7 +33,7 @@ var (
 		Port: 10808,
 	}
 
-	// DefaultRoutesToTUN will route all system traffic will go through the TUN.
+	// DefaultRoutesToTUN will route all system traffic through the TUN.
 	DefaultRoutesToTUN = []*route.Addr{
 		// Reroute all traffic.
 		route.MustParseAddr("0.0.0.0/1"),
