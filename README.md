@@ -18,22 +18,49 @@ Please visit https://xtls.github.io/en for more info.
 
 > Feel free to test this on your system and let me know in the issues :)
 
+## ✨ Features
+- Stupidly easy to use
+- Supports all [Xray-core](https://github.com/XTLS/Xray-core) protocols (vless, vmess e.t.c.) using link notation (`vless://` e.t.c.)
+- Only soft routing rules are applied, no changes made to default routes
+
 ## ⚡️ Usage
 > [!IMPORTANT]
 > - `sudo` is required
 > - CGO_ENABLED=1 is required in order to build the project
 
-Running the VPN on your machine is as simple as running this little command:
+### Standalone application:
 
+Running the VPN on your machine is as simple as running this little command:
 ```bash
 sudo go run . <proto_link>
 ```
 
 Where `proto_link` is your XRay link (like `vless://example.com...`), you can get this from your VPN provider or get it from your XRay server.
-## ✨ Features
-- Stupidly easy to use
-- Supports all [Xray-core](https://github.com/XTLS/Xray-core) protocols (vless, vmess e.t.c.) using link notation (`vless://` e.t.c.)
-- Only soft routing rules are applied, no changes made to default routes
+
+### As library in your own project:
+> [!NOTE]
+> This project is built upon the `core` package, see details and documentation at https://github.com/goxray/core
+
+Install:
+```bash
+go get github.com/goxray/tun/pkg/client
+```
+
+Example:
+```go
+logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+vpn, _ := client.NewClientWithOpts(client.Config{
+  TLSAllowInsecure: false,
+  Logger:           logger,
+})
+
+_ = vpn.Connect(clientLink)
+defer vpn.Disconnect(context.Background())
+
+time.Sleep(60 * time.Second)
+```
+
+> Please refer to godoc for supported methods and types.
 
 ## 📝 TODO
 - [ ] Add IPV6 support
