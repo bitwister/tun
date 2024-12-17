@@ -3,9 +3,8 @@
 ![Static Badge](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go&logoColor=white)
 
 This project brings fully functioning [XRay](https://github.com/XTLS/Xray-core) VPN client implementation in Go.
-<p align="center">
+
 <img alt="Terminal example output" width="80%" align="center" src="/.github/images/carbon.svg">
-</p>
 
 > [!NOTE]
 > The program will not damage your routing rules, default route is intact and only additional rules are added for the lifetime of application's TUN device. There are also additional complementary clean up procedures in place.
