@@ -153,9 +153,7 @@ func (c *Client) InboundProxy() Proxy {
 
 // Connect creates a global tunnel and routes all incoming connections (or traffic specified in Config.RoutesToTUN)
 // to the VPN server via newly created defaultInboundProxy.
-func (c *Client) Connect(link string) error {
-	var err error
-
+func (c *Client) Connect(link string) (err error) {
 	c.cfg.Logger.Debug("Connecting to tunnel", "cfg", c.cfg)
 
 	c.xInst, c.xCfg, err = c.createXrayProxy(link)
@@ -166,13 +164,16 @@ func (c *Client) Connect(link string) error {
 	}
 	c.cfg.Logger.Debug("xray core instance created", "xray_config", c.xCfg)
 
+	c.cfg.Logger.Debug("starting xray core instance")
 	if err = c.xInst.Start(); err != nil {
 		c.cfg.Logger.Error("xray core instance startup failed", "err", err)
 
 		return fmt.Errorf("start xray core instance: %v", err)
 	}
-	c.cfg.Logger.Debug("xray core instance started", "cfg", c.cfg)
+	time.Sleep(100 * time.Millisecond) // Sometimes XRay instance should have a bit more time to set up.
+	c.cfg.Logger.Debug("xray core instance started")
 
+	c.cfg.Logger.Debug("Setting up TUN device")
 	// Create TUN and route all traffic to it.
 	c.tunnel, err = setupTunnel(c.cfg.TUNAddress, c.cfg.TUNAddress.IP, c.cfg.RoutesToTUN)
 	if err != nil {
@@ -182,8 +183,10 @@ func (c *Client) Connect(link string) error {
 	}
 	c.cfg.Logger.Debug("TUN device created")
 
+	c.cfg.Logger.Debug("adding routes for TUN device")
 	// Set XRay remote address to be routed through the default gateway, so that we don't get a loop.
 	_ = route.Delete(c.xrayToGatewayRoute()) // In case previous run failed.
+	c.cfg.Logger.Debug("deleted dangling routes")
 	err = route.Add(c.xrayToGatewayRoute())
 	if err != nil {
 		c.cfg.Logger.Error("routing xray server IP to default route failed", "err", err, "route", c.xrayToGatewayRoute())
