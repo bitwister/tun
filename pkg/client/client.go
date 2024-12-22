@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"os"
@@ -43,30 +44,53 @@ var (
 
 // Config serves configuration for new Client. Empty fields will be set up with defaults values.
 //
-// It is advised to not configure the client yourself, please use NewClient() with default config values,
+// It is advised to not configure the cl yourself, please use NewClient() with default config values,
 // normally you don't have to set these fields yourself.
 type Config struct {
-	// Gateway to direct outbound traffic. Must be able to reach remote XRay server.
+	// GatewayIP to direct outbound traffic. Must be able to reach remote XRay server.
+	// (default: will be dynamically detected from your default gateway).
 	//
 	// Client will determine the system gateway IP automatically,
 	// and you don't have to set this field explicitly.
 	GatewayIP *net.IP
-	// Socks proxy address on which XRay creates inbound proxy.
+	// Socks proxy address on which XRay creates inbound proxy (default: 127.0.0.1:10808).
 	InboundProxy *Proxy
-	// TUN device address.
+	// TUN device address (default: 192.18.0.1).
 	TUNAddress *net.IPNet
-	// List of routes to be pointed to TUN device.
-	// One exception is explicitly added for XRay remote server IP.
+	// List of routes to be pointed to TUN device (default: DefaultRoutesToTUN).
 	//
-	// Use DefaultRoutesToTUN to route all traffic.
+	// One exception is explicitly added for XRay remote server IP and can not be altered.
 	RoutesToTUN []*route.Addr
 	// Whether to allow self-signed certificates or not.
 	TLSAllowInsecure bool
-	// Pass logger with debug level to observe debug logs.
+	// Pass logger with debug level to observe debug logs (default: slog.TextHandler).
 	Logger *slog.Logger
+	// XRayLogType is used to redefine xray core log type (default: LogType_None).
+	XRayLogType xapplog.LogType
 }
 
-// Client is the actual VPN client. It manages connections, routing and tunneling of the requests.
+func (c *Config) apply(new *Config) {
+	if new.GatewayIP != nil {
+		c.GatewayIP = new.GatewayIP
+	}
+	if new.InboundProxy != nil {
+		c.InboundProxy = new.InboundProxy
+	}
+	if new.TUNAddress != nil {
+		c.TUNAddress = new.TUNAddress
+	}
+	if new.Logger != nil {
+		c.Logger = new.Logger
+	}
+	if new.RoutesToTUN != nil {
+		c.RoutesToTUN = new.RoutesToTUN
+	}
+	if new.XRayLogType != xapplog.LogType_None {
+		c.XRayLogType = new.XRayLogType
+	}
+}
+
+// Client is the actual VPN cl. It manages connections, routing and tunneling of the requests.
 // It is safe to make a Client connection as it does not change the default system routing and
 // just adds on existing infrastructure.
 type Client struct {
@@ -74,7 +98,7 @@ type Client struct {
 
 	xInst  *core.Instance
 	xCfg   *xray.GeneralConfig
-	tunnel *tun.Interface
+	tunnel io.ReadWriteCloser
 
 	tunnelStopped chan error
 	stopTunnel    func()
@@ -117,18 +141,7 @@ func NewClientWithOpts(cfg Config) (*Client, error) {
 		return nil, err
 	}
 
-	switch {
-	case cfg.GatewayIP != nil:
-		client.cfg.GatewayIP = cfg.GatewayIP
-	case cfg.InboundProxy != nil:
-		client.cfg.InboundProxy = cfg.InboundProxy
-	case cfg.TUNAddress != nil:
-		client.cfg.TUNAddress = cfg.TUNAddress
-	case cfg.RoutesToTUN != nil:
-		client.cfg.RoutesToTUN = cfg.RoutesToTUN
-	case cfg.Logger != nil:
-		client.cfg.Logger = cfg.Logger
-	}
+	client.cfg.apply(&cfg)
 
 	return client, nil
 }
@@ -153,7 +166,8 @@ func (c *Client) InboundProxy() Proxy {
 
 // Connect creates a global tunnel and routes all incoming connections (or traffic specified in Config.RoutesToTUN)
 // to the VPN server via newly created defaultInboundProxy.
-func (c *Client) Connect(link string) (err error) {
+func (c *Client) Connect(link string) error {
+	var err error
 	c.cfg.Logger.Debug("Connecting to tunnel", "cfg", c.cfg)
 
 	c.xInst, c.xCfg, err = c.createXrayProxy(link)
@@ -181,6 +195,7 @@ func (c *Client) Connect(link string) (err error) {
 
 		return fmt.Errorf("setup TUN device: %v", err)
 	}
+	c.tunnel = newReaderMetrics(c.tunnel)
 	c.cfg.Logger.Debug("TUN device created")
 
 	c.cfg.Logger.Debug("adding routes for TUN device")
@@ -239,6 +254,16 @@ func (c *Client) Disconnect(ctx context.Context) error {
 	return nil
 }
 
+// BytesRead returns number of bytes read from TUN device.
+func (c *Client) BytesRead() int {
+	return c.tunnel.(*readerMetrics).BytesRead()
+}
+
+// BytesWritten returns number of bytes written to TUN device.
+func (c *Client) BytesWritten() int {
+	return c.tunnel.(*readerMetrics).BytesWritten()
+}
+
 // xrayToGatewayRoute is a setup to route VPN requests to gateway.
 // Used as exception to not interfere with traffic going to remote XRay instance.
 func (c *Client) xrayToGatewayRoute() route.Opts {
@@ -256,17 +281,16 @@ func (c *Client) createXrayProxy(link string) (*core.Instance, *xray.GeneralConf
 	// Make the inbound for local proxy.
 	// We will later use it to redirect all traffic from TUN device to this proxy.
 	inbound := &xray.Socks{
-		Remark:  "XRayProxyListener", // TODO: rename to vpn client name when the project name is defined.
+		Remark:  "GoXRay-TUN-Listener",
 		Address: c.cfg.InboundProxy.IP.String(),
 		Port:    strconv.Itoa(c.cfg.InboundProxy.Port),
 	}
 
-	svc := &xray.Service{
-		Inbound:       inbound,
-		LogType:       xapplog.LogType_Console,
-		LogLevel:      xRayLogLevel(c.cfg.Logger.Handler()),
-		AllowInsecure: c.cfg.TLSAllowInsecure,
-	}
+	svc := xray.NewXrayService(true,
+		c.cfg.TLSAllowInsecure,
+		xray.WithCustomLogLevel(c.cfg.XRayLogType, xRayLogLevel(c.cfg.Logger.Handler())),
+		xray.WithInbound(inbound),
+	)
 
 	inst, err := svc.MakeXrayInstance(protocol)
 	if err != nil {
