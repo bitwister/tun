@@ -256,11 +256,19 @@ func (c *Client) Disconnect(ctx context.Context) error {
 
 // BytesRead returns number of bytes read from TUN device.
 func (c *Client) BytesRead() int {
+	if c.tunnel == nil {
+		return 0
+	}
+
 	return c.tunnel.(*readerMetrics).BytesRead()
 }
 
 // BytesWritten returns number of bytes written to TUN device.
 func (c *Client) BytesWritten() int {
+	if c.tunnel == nil {
+		return 0
+	}
+
 	return c.tunnel.(*readerMetrics).BytesWritten()
 }
 
