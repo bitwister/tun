@@ -63,14 +63,26 @@ time.Sleep(60 * time.Second)
 
 > Please refer to godoc for supported methods and types.
 
-## 📝 TODO
-- [ ] Add IPV6 support
+### Compile
+
+The project compiles like a regular Go program.
+
+To cross-compile from macOS to Linux arm/amd I use these commands:
+```bash
+docker run --platform=linux/arm64 -v=${PWD}:/app --workdir=/app arm64v8/golang:1.23 env GOARCH=arm64 go build -o goxray_cli_linux_arm64 .
+```
+```bash
+docker run --platform=linux/amd64 -v=${PWD}:/app --workdir=/app amd64/golang:1.23 env GOARCH=amd64 go build -o goxray_cli_linux_amd64 .
+```
 
 ## How it works
 - Application sets up new TUN device.
 - Adds additional routes to route all system traffic to this newly created TUN device.
 - Adds exception for XRay outbound address (basically your VPN server IP).
 - Tunnel is created to process all incoming IP packets via TCP/IP stack. All outbound traffic is routed through the XRay inbound proxy and all incoming packets are routed back via TUN device.
+
+## 📝 TODO
+- [ ] Add IPV6 support
 
 ## 🎯 Motivation
 There are no available XRay clients implementations in Go on Github, so I decided to do it myself. The attempt proved to be successfull and I wanted to share my findings in a complete and working VPN client.
