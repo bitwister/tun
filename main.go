@@ -45,6 +45,7 @@ func main() {
 		log.Fatal(err)
 	}
 
+	slog.Info("Connected to VPN server")
 	<-sigterm
 	slog.Info("Received term signal, disconnecting...")
 	if err = vpn.Disconnect(context.Background()); err != nil {

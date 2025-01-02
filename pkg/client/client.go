@@ -14,10 +14,10 @@ import (
 
 	"github.com/goxray/core/network/route"
 	"github.com/goxray/core/network/tun"
-	tun2socks "github.com/goxray/core/pipe2socks"
+	"github.com/goxray/core/pipe2socks"
 
 	"github.com/jackpal/gateway"
-	"github.com/lilendian0x00/xray-knife/xray"
+	"github.com/lilendian0x00/xray-knife/v2/xray"
 	xapplog "github.com/xtls/xray-core/app/log"
 	xcommlog "github.com/xtls/xray-core/common/log"
 	"github.com/xtls/xray-core/core"
@@ -96,9 +96,11 @@ func (c *Config) apply(new *Config) {
 type Client struct {
 	cfg Config
 
-	xInst  *core.Instance
+	xInst  runnable
 	xCfg   *xray.GeneralConfig
 	tunnel io.ReadWriteCloser
+	pipe   pipe
+	routes ipTable
 
 	tunnelStopped chan error
 	stopTunnel    func()
@@ -122,6 +124,16 @@ func NewClient() (*Client, error) {
 		return nil, fmt.Errorf("discover gateway: %w", err)
 	}
 
+	p, err := pipe2socks.NewPipe(pipe2socks.DefaultOpts)
+	if err != nil {
+		return nil, fmt.Errorf("tun2socks new pipe: %w", err)
+	}
+
+	r, err := route.New()
+	if err != nil {
+		return nil, fmt.Errorf("route new: %w", err)
+	}
+
 	return &Client{
 		cfg: Config{
 			GatewayIP:    &gatewayIP,
@@ -131,6 +143,8 @@ func NewClient() (*Client, error) {
 			Logger:       slog.New(slog.NewTextHandler(os.Stdout, nil)),
 		},
 		tunnelStopped: make(chan error),
+		pipe:          p,
+		routes:        r,
 	}, nil
 }
 
@@ -174,7 +188,7 @@ func (c *Client) Connect(link string) error {
 	if err != nil {
 		c.cfg.Logger.Error("xray core creation failed", "err", err, "xray_config", c.xCfg)
 
-		return fmt.Errorf("create xray core instance: %v", err)
+		return fmt.Errorf("create xray core instance: %w", err)
 	}
 	c.cfg.Logger.Debug("xray core instance created", "xray_config", c.xCfg)
 
@@ -182,31 +196,31 @@ func (c *Client) Connect(link string) error {
 	if err = c.xInst.Start(); err != nil {
 		c.cfg.Logger.Error("xray core instance startup failed", "err", err)
 
-		return fmt.Errorf("start xray core instance: %v", err)
+		return fmt.Errorf("start xray core instance: %w", err)
 	}
 	time.Sleep(100 * time.Millisecond) // Sometimes XRay instance should have a bit more time to set up.
 	c.cfg.Logger.Debug("xray core instance started")
 
 	c.cfg.Logger.Debug("Setting up TUN device")
 	// Create TUN and route all traffic to it.
-	c.tunnel, err = setupTunnel(c.cfg.TUNAddress, c.cfg.TUNAddress.IP, c.cfg.RoutesToTUN)
+	c.tunnel, err = c.setupTunnel()
 	if err != nil {
 		c.cfg.Logger.Error("TUN creation failed", "err", err)
 
-		return fmt.Errorf("setup TUN device: %v", err)
+		return fmt.Errorf("setup TUN device: %w", err)
 	}
 	c.tunnel = newReaderMetrics(c.tunnel)
 	c.cfg.Logger.Debug("TUN device created")
 
 	c.cfg.Logger.Debug("adding routes for TUN device")
 	// Set XRay remote address to be routed through the default gateway, so that we don't get a loop.
-	_ = route.Delete(c.xrayToGatewayRoute()) // In case previous run failed.
+	_ = c.routes.Delete(c.xrayToGatewayRoute()) // In case previous run failed.
 	c.cfg.Logger.Debug("deleted dangling routes")
-	err = route.Add(c.xrayToGatewayRoute())
+	err = c.routes.Add(c.xrayToGatewayRoute())
 	if err != nil {
 		c.cfg.Logger.Error("routing xray server IP to default route failed", "err", err, "route", c.xrayToGatewayRoute())
 
-		return fmt.Errorf("add xray server route exception: %v", err)
+		return fmt.Errorf("add xray server route exception: %w", err)
 	}
 	c.cfg.Logger.Debug("routing xray server IP to default route")
 
@@ -216,7 +230,7 @@ func (c *Client) Connect(link string) error {
 	ctx, c.stopTunnel = context.WithCancel(context.Background())
 	go func() {
 		wg.Done()
-		c.tunnelStopped <- tun2socks.Copy(ctx, c.tunnel, c.cfg.InboundProxy.String(), nil)
+		c.tunnelStopped <- c.pipe.Copy(ctx, c.tunnel, c.cfg.InboundProxy.String())
 		c.cfg.Logger.Debug("tunnel pipe closed", "err", err)
 	}()
 	wg.Wait()
@@ -230,8 +244,12 @@ func (c *Client) Connect(link string) error {
 // It will block till all resources are done processing or
 // context is cancelled (method also enforces timeout of disconnectTimeout)
 func (c *Client) Disconnect(ctx context.Context) error {
+	if c.stopTunnel == nil {
+		return nil // not connected
+	}
+
 	c.stopTunnel()
-	err := errors.Join(c.xInst.Close(), c.tunnel.Close(), route.Delete(c.xrayToGatewayRoute()))
+	err := errors.Join(c.xInst.Close(), c.tunnel.Close(), c.routes.Delete(c.xrayToGatewayRoute()))
 
 	// Waiting till the tunnel actually done with processing connections.
 	ctx, cancel := context.WithTimeout(ctx, disconnectTimeout)
@@ -283,7 +301,7 @@ func (c *Client) xrayToGatewayRoute() route.Opts {
 func (c *Client) createXrayProxy(link string) (*core.Instance, *xray.GeneralConfig, error) {
 	protocol, err := xray.ParseXrayConfig(link)
 	if err != nil {
-		return nil, nil, fmt.Errorf("parse xray config link: %w", err)
+		return nil, nil, fmt.Errorf("parse config link: %w", err)
 	}
 
 	// Make the inbound for local proxy.
@@ -302,7 +320,7 @@ func (c *Client) createXrayProxy(link string) (*core.Instance, *xray.GeneralConf
 
 	inst, err := svc.MakeXrayInstance(protocol)
 	if err != nil {
-		return nil, nil, fmt.Errorf("make xray instance: %w", err)
+		return nil, nil, fmt.Errorf("make instance: %w", err)
 	}
 
 	cfg := protocol.ConvertToGeneralConfig()
@@ -328,17 +346,17 @@ func xRayLogLevel(h slog.Handler) xcommlog.Severity {
 }
 
 // setupTunnel creates new TUN interface in the system and routes all traffic to it.
-func setupTunnel(l *net.IPNet, gw net.IP, rerouteToTun []*route.Addr) (*tun.Interface, error) {
+func (c *Client) setupTunnel() (*tun.Interface, error) {
 	ifc, err := tun.New("", 1500)
 	if err != nil {
 		return nil, fmt.Errorf("create tun: %w", err)
 	}
 
-	if err = ifc.Up(l, gw); err != nil {
+	if err = ifc.Up(c.cfg.TUNAddress, c.cfg.TUNAddress.IP); err != nil {
 		return nil, fmt.Errorf("setup interface: %w", err)
 	}
 
-	if err = route.Add(route.Opts{IfName: ifc.Name(), Routes: rerouteToTun}); err != nil {
+	if err = c.routes.Add(route.Opts{IfName: ifc.Name(), Routes: c.cfg.RoutesToTUN}); err != nil {
 		return nil, fmt.Errorf("add route: %w", err)
 	}
 
