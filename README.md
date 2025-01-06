@@ -87,3 +87,9 @@ docker run --platform=linux/amd64 -v=${PWD}:/app --workdir=/app amd64/golang:1.2
 
 ## 🎯 Motivation
 There are no available XRay clients implementations in Go on Github, so I decided to do it myself. The attempt proved to be successfull and I wanted to share my findings in a complete and working VPN client.
+
+## Credits
+
+- https://github.com/xtls/xray-core
+- https://github.com/lilendian0x00/xray-knife
+- https://github.com/jackpal/gateway
