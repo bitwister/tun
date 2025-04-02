@@ -6,6 +6,8 @@
 
 This project brings fully functioning [XRay](https://github.com/XTLS/Xray-core) VPN client implementation in Go.
 
+> For desktop version see https://github.com/goxray/desktop
+
 <img alt="Terminal example output" align="center" src="/.github/images/carbon.png">
 
 > [!NOTE]
@@ -64,9 +66,18 @@ time.Sleep(60 * time.Second)
 
 > Please refer to godoc for supported methods and types.
 
-### Compile
+## 🛠 Build
 
-The project compiles like a regular Go program.
+The project compiles like a regular Go program:
+```bash
+CGO_ENABLED=1 go build -o goxray_cli_darwin_amd64 .
+```
+
+#### Cross-compilation
+
+```bash
+env CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -o goxray_cli_darwin_amd64 .
+```
 
 To cross-compile from macOS to Linux arm/amd I use these commands:
 ```bash
