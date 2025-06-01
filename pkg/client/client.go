@@ -293,8 +293,15 @@ func (c *Client) BytesWritten() int {
 // xrayToGatewayRoute is a setup to route VPN requests to gateway.
 // Used as exception to not interfere with traffic going to remote XRay instance.
 func (c *Client) xrayToGatewayRoute() route.Opts {
+	// Resolve IP from hostname (if xray server is set up with a hostname)
+	ip, err := net.ResolveIPAddr("ip", c.xCfg.Address)
+	if err != nil {
+		c.cfg.Logger.Error("xray core instance creation failed", "err", err)
+		panic(err.Error())
+	}
+
 	// Append "/32" to match only the XRay server route.
-	return route.Opts{Gateway: *c.cfg.GatewayIP, Routes: []*route.Addr{route.MustParseAddr(c.xCfg.Address + "/32")}}
+	return route.Opts{Gateway: *c.cfg.GatewayIP, Routes: []*route.Addr{route.MustParseAddr(ip.String() + "/32")}}
 }
 
 // createXrayProxy creates XRay instance from connection link with additional proxy listening on {addr}:{port}.

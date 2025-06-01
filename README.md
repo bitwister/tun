@@ -70,7 +70,7 @@ time.Sleep(60 * time.Second)
 
 The project compiles like a regular Go program:
 ```bash
-CGO_ENABLED=1 go build -o goxray_cli_darwin_amd64 .
+CGO_ENABLED=1 go build -o goxray_cli .
 ```
 
 #### Cross-compilation
