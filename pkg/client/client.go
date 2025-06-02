@@ -15,7 +15,6 @@ import (
 	"github.com/goxray/core/network/route"
 	"github.com/goxray/core/network/tun"
 	"github.com/goxray/core/pipe2socks"
-
 	"github.com/jackpal/gateway"
 	"github.com/lilendian0x00/xray-knife/v2/xray"
 	xapplog "github.com/xtls/xray-core/app/log"
@@ -28,10 +27,10 @@ const disconnectTimeout = 30 * time.Second
 var (
 	// defaultTUNAddress is the address new TUN device will be set up with.
 	defaultTUNAddress = &net.IPNet{IP: net.IPv4(192, 18, 0, 1), Mask: net.IPv4Mask(255, 255, 255, 255)}
-	// defaultInboundProxy default proxy will be set up for listening on 127.0.0.1:10808.
+	// defaultInboundProxy default proxy will be set up for listening on 127.0.0.1.
 	defaultInboundProxy = &Proxy{
 		IP:   net.IPv4(127, 0, 0, 1),
-		Port: 10808,
+		Port: getFreePort(),
 	}
 
 	// DefaultRoutesToTUN will route all system traffic through the TUN.
@@ -98,6 +97,7 @@ type Client struct {
 
 	xInst  runnable
 	xCfg   *xray.GeneralConfig
+	xSrvIP *net.IPAddr
 	tunnel io.ReadWriteCloser
 	pipe   pipe
 	routes ipTable
@@ -293,15 +293,8 @@ func (c *Client) BytesWritten() int {
 // xrayToGatewayRoute is a setup to route VPN requests to gateway.
 // Used as exception to not interfere with traffic going to remote XRay instance.
 func (c *Client) xrayToGatewayRoute() route.Opts {
-	// Resolve IP from hostname (if xray server is set up with a hostname)
-	ip, err := net.ResolveIPAddr("ip", c.xCfg.Address)
-	if err != nil {
-		c.cfg.Logger.Error("xray core instance creation failed", "err", err)
-		panic(err.Error())
-	}
-
 	// Append "/32" to match only the XRay server route.
-	return route.Opts{Gateway: *c.cfg.GatewayIP, Routes: []*route.Addr{route.MustParseAddr(ip.String() + "/32")}}
+	return route.Opts{Gateway: *c.cfg.GatewayIP, Routes: []*route.Addr{route.MustParseAddr(c.xSrvIP.String() + "/32")}}
 }
 
 // createXrayProxy creates XRay instance from connection link with additional proxy listening on {addr}:{port}.
@@ -331,6 +324,13 @@ func (c *Client) createXrayProxy(link string) (*core.Instance, *xray.GeneralConf
 	}
 
 	cfg := protocol.ConvertToGeneralConfig()
+
+	// Validate xray proto addr.
+	ip, err := net.ResolveIPAddr("ip", cfg.Address)
+	if err != nil {
+		return nil, nil, fmt.Errorf("xray address not resolvable: %w", err)
+	}
+	c.xSrvIP = ip
 
 	return inst, &cfg, nil
 }
@@ -368,4 +368,17 @@ func (c *Client) setupTunnel() (*tun.Interface, error) {
 	}
 
 	return ifc, nil
+}
+
+func getFreePort() int {
+	ln, err := net.Listen("tcp", "localhost:0")
+	if err != nil {
+		return 10808
+	}
+	defer ln.Close()
+
+	addr := ln.Addr().(*net.TCPAddr)
+	port := addr.Port
+
+	return port
 }
