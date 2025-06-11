@@ -3,6 +3,8 @@
 ![Static Badge](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go&logoColor=white)
 [![Go Report Card](https://goreportcard.com/badge/github.com/goxray/tun)](https://goreportcard.com/report/github.com/goxray/tun)
 [![Go Reference](https://pkg.go.dev/badge/github.com/goxray/tun.svg)](https://pkg.go.dev/github.com/goxray/tun)
+![GitHub Downloads (all assets, all releases)](https://img.shields.io/github/downloads/goxray/tun/total?color=blue)
+
 
 This project brings fully functioning [XRay](https://github.com/XTLS/Xray-core) VPN client implementation in Go.
 
