@@ -21,6 +21,7 @@ Please visit https://xtls.github.io/en for more info.
 #### Tested and supported on:
 - macOS (tested on Sequoia 15.1.1)
 - Linux (tested on Ubuntu 24.10)
+- Docker
 
 > Feel free to test this on your system and let me know in the issues :)
 
@@ -33,6 +34,17 @@ Please visit https://xtls.github.io/en for more info.
 > [!IMPORTANT]
 > - `sudo` is required
 > - CGO_ENABLED=1 is required in order to build the project
+
+### Docker
+```yml
+services:
+  xraytun:
+    image: ghcr.io/goxray/tun
+    cap_add: [NET_ADMIN]
+    environment:
+      # - CONFIG=vless://...
+```
+See examples how to combine multiple VPN clients on [twine page](https://github.com/bitwister/twine).
 
 ### Standalone application:
 
